@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>跨國溫室氣體盤查計算器 v2.1 (Global GHG Calculator)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
+        body { font-family: 'Noto Sans TC', sans-serif; }
+        .input-month { transition: all 0.2s; }
+        .input-month:focus { transform: scale(1.02); border-color: #3b82f6; }
+        .tab-btn.active { border-bottom: 2px solid #2563eb; color: #2563eb; font-weight: bold; }
+        .tab-btn { color: #6b7280; }
+        /* Tooltip style */
+        .tooltip { visibility: hidden; width: 200px; background-color: #333; color: #fff; text-align: center; border-radius: 6px; padding: 5px; position: absolute; z-index: 1; bottom: 125%; left: 50%; margin-left: -100px; opacity: 0; transition: opacity 0.3s; font-size: 0.75rem; }
+        .tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent; }
+        .has-tooltip:hover .tooltip { visibility: visible; opacity: 1; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-slate-800 text-white p-4 shadow-md flex justify-between items-center z-20">
+        <div class="flex items-center gap-3">
+            <div class="bg-green-500 p-2 rounded-full"><i class="fa-solid fa-leaf text-white"></i></div>
+            <div>
+                <h1 class="text-xl font-bold">跨國溫室氣體盤查計算器 v2.1</h1>
+                <p class="text-xs text-gray-400">自動儲存功能 | IPCC AR5 / 各國最新公告係數</p>
+            </div>
+        </div>
+        <div class="flex gap-2">
+            <button onclick="switchTab('list')" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded text-sm transition">
+                <i class="fa-solid fa-table-list"></i> 清單模式
+            </button>
+            <button onclick="switchTab('analysis')" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded text-sm transition">
+                <i class="fa-solid fa-chart-pie"></i> 分析圖表
+            </button>
+            <button onclick="clearStorage()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded text-sm transition ml-4" title="清除暫存資料">
+                <i class="fa-solid fa-trash-can"></i> 清除資料
+            </button>
+            <button onclick="exportToCSV()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow flex items-center gap-2 transition">
+                <i class="fa-solid fa-file-csv"></i> 匯出 CSV
+            </button>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        
+        <!-- Left Panel: Input Form -->
+        <aside class="w-1/3 bg-white border-r border-gray-200 overflow-y-auto p-6 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10 custom-scrollbar">
+            
+            <div class="space-y-6">
+                <!-- Section 1: Selection -->
+                <div class="bg-blue-50 p-5 rounded-xl border border-blue-100 shadow-sm">
+                    <h2 class="text-lg font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2">
+                        <i class="fa-solid fa-sliders mr-2"></i>1. 選擇排放源
+                    </h2>
+                    
+                    <div class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">盤查年度 (Year)</label>
+                                <input type="number" id="yearInput" value="2025" class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 font-mono font-bold text-center">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">廠區/國家 (Country)</label>
+                                <select id="countrySelect" onchange="updateScopeOptions()" class="w-full bg-white border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                                    <option value="" disabled selected>-- 選擇 --</option>
+                                    <!-- Options populated by JS -->
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">範疇 (Scope)</label>
+                            <select id="scopeSelect" onchange="updateEnergyOptions()" class="w-full bg-white border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none" disabled>
+                                <option value="" disabled selected>-- 請先選擇國家 --</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">能源項目 (Fuel/Energy)</label>
+                            <select id="fuelSelect" onchange="updateFactorInfo()" class="w-full bg-white border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none" disabled>
+                                <option value="" disabled selected>-- 請先選擇範疇 --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Info Card -->
+                    <div id="factorCard" class="mt-4 bg-white p-4 rounded-lg border border-blue-200 hidden shadow-sm relative overflow-hidden">
+                        <div class="absolute top-0 right-0 bg-yellow-100 text-yellow-800 text-[10px] px-2 py-0.5 rounded-bl">係數資訊</div>
+                        <div class="flex justify-between items-end mb-2">
+                            <div>
+                                <span class="text-xs text-gray-500 block">排放係數 (Emission Factor)</span>
+                                <span id="factorValue" class="text-2xl font-bold text-blue-600">0.0000</span>
+                            </div>
+                            <span id="factorUnit" class="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600 font-mono mb-1">-</span>
+                        </div>
+                        <div class="text-xs text-gray-500 border-t border-dashed pt-2 mt-1">
+                            <span class="font-bold"><i class="fa-solid fa-link text-gray-400 mr-1"></i>來源：</span> 
+                            <span id="factorSourceWrapper" class="hover:text-blue-600 transition-colors">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 2: Data Entry -->
+                <div>
+                    <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-2">
+                        <h2 class="text-lg font-bold text-gray-800">
+                            <i class="fa-solid fa-pen-to-square mr-2 text-gray-500"></i>2. 輸入使用量
+                        </h2>
+                        <!-- Toggle Switch -->
+                        <div class="flex bg-gray-200 rounded-lg p-1">
+                            <button onclick="toggleInputMode('monthly')" id="btnMonthly" class="px-3 py-1 text-xs rounded-md bg-white shadow-sm font-medium transition-all">每月輸入</button>
+                            <button onclick="toggleInputMode('yearly')" id="btnYearly" class="px-3 py-1 text-xs rounded-md text-gray-500 font-medium transition-all">年度總量</button>
+                        </div>
+                    </div>
+
+                    <!-- Monthly Inputs -->
+                    <div id="monthlyInputGroup" class="grid grid-cols-3 gap-3 transition-opacity duration-300">
+                        <!-- Generated by JS -->
+                    </div>
+
+                    <!-- Yearly Input -->
+                    <div id="yearlyInputGroup" class="hidden">
+                        <div class="bg-gray-50 p-6 rounded-lg border border-gray-200 text-center">
+                            <label class="block text-sm font-bold text-gray-600 mb-2">請輸入年度總使用量</label>
+                            <div class="flex items-center justify-center gap-2">
+                                <input type="number" id="yearlyTotalInput" min="0" step="0.01" oninput="calculateTotal()" 
+                                    class="w-48 text-center text-xl font-bold border-b-2 border-blue-500 bg-transparent focus:outline-none p-1" placeholder="0">
+                                <span id="yearlyUnitLabel" class="text-gray-400 font-medium">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Button -->
+                <button onclick="addToTable()" class="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold py-3.5 rounded-xl shadow-lg transform transition active:scale-[0.98] flex justify-center items-center gap-2">
+                    <i class="fa-solid fa-plus"></i> 加入盤查清冊 (Add to List)
+                </button>
+            </div>
+        </aside>
+
+        <!-- Right Panel: Dashboard & Content -->
+        <main class="w-2/3 bg-gray-50 flex flex-col h-full">
+            
+            <!-- Dashboard Cards (Always Visible) -->
+            <div class="bg-white p-6 border-b border-gray-200 shadow-sm grid grid-cols-3 gap-6 h-36 z-10">
+                <div class="bg-blue-50 rounded-xl p-4 border border-blue-100 flex flex-col justify-center">
+                    <span class="text-xs text-blue-600 font-bold uppercase tracking-wider mb-1">年度總使用量 (Total Usage)</span>
+                    <div class="flex items-baseline gap-2">
+                        <span id="totalUsage" class="text-3xl font-bold text-gray-800">0</span>
+                        <span id="totalUnit" class="text-sm text-gray-500 font-medium">-</span>
+                    </div>
+                </div>
+                <div class="bg-green-50 rounded-xl p-4 border border-green-100 flex flex-col justify-center col-span-2 relative overflow-hidden">
+                    <div class="absolute right-0 top-0 opacity-10 text-9xl text-green-600 -mr-4 -mt-4"><i class="fa-brands fa-envira"></i></div>
+                    <span class="text-xs text-green-600 font-bold uppercase tracking-wider mb-1">預估碳排放量 (Estimated Emissions)</span>
+                    <div class="flex items-baseline gap-2 z-10">
+                        <span id="totalEmission" class="text-4xl font-bold text-green-700">0.000</span>
+                        <span class="text-lg text-green-600 font-medium">公噸 CO2e</span>
+                    </div>
+                    <p class="text-[10px] text-green-500 mt-1 z-10">* GWP 版本：IPCC AR5 (CO2=1, CH4=28, N2O=265)</p>
+                </div>
+            </div>
+
+            <!-- Content Area (Tabs) -->
+            <div class="flex-1 overflow-hidden flex flex-col relative">
+                
+                <!-- View: Inventory List -->
+                <div id="view-list" class="flex-1 flex flex-col overflow-hidden transition-all duration-300">
+                    <div class="p-4 bg-gray-50 flex justify-between items-end border-b border-gray-200">
+                        <h3 class="font-bold text-gray-700 text-lg"><i class="fa-solid fa-list-ul mr-2"></i>盤查清冊明細</h3>
+                        <span id="rowCount" class="text-xs bg-white border border-gray-300 px-3 py-1 rounded-full text-gray-600 shadow-sm">0 筆資料</span>
+                    </div>
+                    
+                    <div class="flex-1 overflow-auto p-4 custom-scrollbar">
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                            <table class="w-full text-sm text-left text-gray-600">
+                                <thead class="text-xs text-gray-500 uppercase bg-gray-50 border-b border-gray-100 sticky top-0">
+                                    <tr>
+                                        <th class="px-4 py-3">年度</th>
+                                        <th class="px-4 py-3">國家</th>
+                                        <th class="px-4 py-3">範疇</th>
+                                        <th class="px-4 py-3">能源項目</th>
+                                        <th class="px-4 py-3 text-right">總用量</th>
+                                        <th class="px-4 py-3 text-center">單位</th>
+                                        <th class="px-4 py-3 text-right">係數</th>
+                                        <th class="px-4 py-3 text-center">來源</th>
+                                        <th class="px-4 py-3 text-right text-gray-800 font-bold bg-gray-50">排放量 (tCO2e)</th>
+                                        <th class="px-4 py-3 text-center">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="inventoryTableBody">
+                                    <tr id="emptyRow" class="bg-white">
+                                        <td colspan="10" class="px-6 py-20 text-center text-gray-400 italic">
+                                            <div class="flex flex-col items-center gap-2">
+                                                <i class="fa-regular fa-folder-open text-3xl opacity-30"></i>
+                                                <span>尚無資料，請從左側輸入後點擊「加入盤查清冊」</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="bg-white border-t border-gray-200 p-4 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] z-10">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-gray-600">總計 (Grand Total):</span>
+                            <span id="grandTotal" class="text-2xl font-bold text-green-600">0.000 <span class="text-sm font-normal text-gray-500">tCO2e</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- View: Analysis Charts -->
+                <div id="view-analysis" class="flex-1 overflow-auto p-6 hidden bg-gray-100 custom-scrollbar">
+                    <div class="grid grid-cols-2 gap-6 h-full">
+                        <!-- Chart 1: By Country -->
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col">
+                            <h3 class="font-bold text-gray-700 mb-4 flex items-center">
+                                <i class="fa-solid fa-earth-asia mr-2 text-blue-500"></i>各地區排放量比較 (By Country)
+                            </h3>
+                            <div class="flex-1 relative">
+                                <canvas id="chartCountry"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Chart 2: By Year/Scope -->
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col">
+                            <h3 class="font-bold text-gray-700 mb-4 flex items-center">
+                                <i class="fa-solid fa-chart-line mr-2 text-purple-500"></i>年度/範疇分析 (By Year & Scope)
+                            </h3>
+                            <div class="flex-1 relative">
+                                <canvas id="chartYear"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        // --- 1. Enhanced Database with URLs ---
+        const database = [
+            // --- Taiwan ---
+            { 
+                country: "台灣 (Taiwan)", scope: "Scope 1", item: "車用汽油 (Gasoline)", unit: "L", factor: 2.2631, 
+                source: "台灣環境部氣候署 6.0.4 版", url: "https://ver.moenv.gov.tw/" 
+            },
+            { 
+                country: "台灣 (Taiwan)", scope: "Scope 1", item: "柴油 (Diesel) - 固定源", unit: "L", factor: 2.6060, 
+                source: "台灣環境部氣候署 6.0.4 版", url: "https://ver.moenv.gov.tw/" 
+            },
+            { 
+                country: "台灣 (Taiwan)", scope: "Scope 1", item: "柴油 (Diesel) - 移動源", unit: "L", factor: 2.6060, 
+                source: "台灣環境部氣候署 6.0.4 版", url: "https://ver.moenv.gov.tw/" 
+            },
+            { 
+                country: "台灣 (Taiwan)", scope: "Scope 1", item: "液化石油氣 (LPG)", unit: "kg", factor: 1.7529, 
+                source: "台灣環境部氣候署 6.0.4 版", url: "https://ver.moenv.gov.tw/" 
+            },
+            { 
+                country: "台灣 (Taiwan)", scope: "Scope 1", item: "天然氣 (Natural Gas)", unit: "m3", factor: 1.8790, 
+                source: "台灣環境部氣候署 6.0.4 版", url: "https://ver.moenv.gov.tw/" 
+            },
+            { 
+                country: "台灣 (Taiwan)", scope: "Scope 2", item: "外購電力 (Electricity)", unit: "kWh", factor: 0.4740, 
+                source: "台灣能源署 2024公告 (112年度係數)", url: "https://www.moeaea.gov.tw/" 
+            },
+
+            // --- Vietnam ---
+            { 
+                country: "越南 (Vietnam)", scope: "Scope 1", item: "車用汽油 (Gasoline)", unit: "L", factor: 2.3251, 
+                source: "MONRE 2626/QĐ-BTNMT (IPCC NCV)", url: "https://monre.gov.vn/" 
+            },
+            { 
+                country: "越南 (Vietnam)", scope: "Scope 1", item: "柴油 (Diesel) - 固定源", unit: "L", factor: 2.6836, 
+                source: "MONRE 2626/QĐ-BTNMT (IPCC NCV)", url: "https://monre.gov.vn/" 
+            },
+            { 
+                country: "越南 (Vietnam)", scope: "Scope 1", item: "柴油 (Diesel) - 移動源", unit: "L", factor: 2.7176, 
+                source: "MONRE 2626/QĐ-BTNMT (IPCC NCV)", url: "https://monre.gov.vn/" 
+            },
+            { 
+                country: "越南 (Vietnam)", scope: "Scope 1", item: "液化石油氣 (LPG)", unit: "kg", factor: 2.9863, 
+                source: "MONRE 2626/QĐ-BTNMT (IPCC NCV)", url: "https://monre.gov.vn/" 
+            },
+            { 
+                country: "越南 (Vietnam)", scope: "Scope 1", item: "天然氣 (Natural Gas)", unit: "m3", factor: 1.8790, 
+                source: "MONRE 2626 (IPCC Default NCV)", url: "https://monre.gov.vn/" 
+            },
+            { 
+                country: "越南 (Vietnam)", scope: "Scope 2", item: "外購電力 (Electricity)", unit: "kWh", factor: 0.6592, 
+                source: "越南資源環境部 (DCC) 公告 2023", url: "http://dcc.gov.vn/" 
+            },
+
+            // --- Thailand ---
+            { 
+                country: "泰國 (Thailand)", scope: "Scope 1", item: "車用汽油 (Gasoline)", unit: "L", factor: 2.2700, 
+                source: "IPCC 2006 Default (泰國預設)", url: "https://www.ipcc-nggip.iges.or.jp/public/2006gl/" 
+            },
+            { 
+                country: "泰國 (Thailand)", scope: "Scope 1", item: "柴油 (Diesel)", unit: "L", factor: 2.6900, 
+                source: "泰國 TGO Carbon Footprint (2023)", url: "http://thaicarbonlabel.tgo.or.th/" 
+            },
+            { 
+                country: "泰國 (Thailand)", scope: "Scope 1", item: "液化石油氣 (LPG)", unit: "kg", factor: 3.1100, 
+                source: "泰國 TGO Carbon Footprint (2023)", url: "http://thaicarbonlabel.tgo.or.th/" 
+            },
+            { 
+                country: "泰國 (Thailand)", scope: "Scope 1", item: "天然氣 (Natural Gas)", unit: "m3", factor: 1.8790, 
+                source: "IPCC 2006 Default", url: "https://www.ipcc-nggip.iges.or.jp/public/2006gl/" 
+            },
+            { 
+                country: "泰國 (Thailand)", scope: "Scope 2", item: "外購電力 (Electricity)", unit: "kWh", factor: 0.4999, 
+                source: "泰國 TGO 2023 Grid Emission Factor", url: "http://thaicarbonlabel.tgo.or.th/" 
+            },
+
+            // --- USA ---
+            { 
+                country: "美國 (USA)", scope: "Scope 1", item: "車用汽油 (Gasoline)", unit: "L", factor: 2.3200, 
+                source: "US EPA GHG Hub (2024)", url: "https://www.epa.gov/climateleadership/ghg-emission-factors-hub" 
+            },
+            { 
+                country: "美國 (USA)", scope: "Scope 1", item: "柴油 (Diesel)", unit: "L", factor: 2.7000, 
+                source: "US EPA GHG Hub (2024)", url: "https://www.epa.gov/climateleadership/ghg-emission-factors-hub" 
+            },
+            { 
+                country: "美國 (USA)", scope: "Scope 1", item: "天然氣 (Natural Gas)", unit: "m3", factor: 1.9300, 
+                source: "US EPA (53.06 kg/mmBtu)", url: "https://www.epa.gov/climateleadership/ghg-emission-factors-hub" 
+            },
+            { 
+                country: "美國 (USA)", scope: "Scope 2", item: "外購電力 (Electricity)", unit: "kWh", factor: 0.3800, 
+                source: "US EPA eGRID (全美平均)", url: "https://www.epa.gov/egrid" 
+            },
+
+            // --- China ---
+            { 
+                country: "中國 (China)", scope: "Scope 1", item: "車用汽油 (Gasoline)", unit: "L", factor: 2.2600, 
+                source: "IPCC 2006 Default (China NCV)", url: "https://www.mee.gov.cn/" 
+            },
+            { 
+                country: "中國 (China)", scope: "Scope 1", item: "柴油 (Diesel)", unit: "L", factor: 2.6400, 
+                source: "IPCC 2006 Default (China NCV)", url: "https://www.mee.gov.cn/" 
+            },
+            { 
+                country: "中國 (China)", scope: "Scope 1", item: "天然氣 (Natural Gas)", unit: "m3", factor: 2.1600, 
+                source: "IPCC 2006 Default (China NCV)", url: "https://www.mee.gov.cn/" 
+            },
+            { 
+                country: "中國 (China)", scope: "Scope 2", item: "外購電力 (Electricity)", unit: "kWh", factor: 0.5366, 
+                source: "中國生態環境部 2022年度電網平均排放因子 (2024/12公告)", url: "https://www.mee.gov.cn/xxgk2018/xxgk/xxgk01/202412/t20241226_1099413.html" 
+            },
+
+            // --- Germany ---
+            { 
+                country: "德國 (Germany)", scope: "Scope 1", item: "車用汽油 (Gasoline)", unit: "L", factor: 2.3100, 
+                source: "UBA / DEFRA 2023", url: "https://www.umweltbundesamt.de/" 
+            },
+            { 
+                country: "德國 (Germany)", scope: "Scope 1", item: "柴油 (Diesel)", unit: "L", factor: 2.6800, 
+                source: "UBA / DEFRA 2023", url: "https://www.umweltbundesamt.de/" 
+            },
+            { 
+                country: "德國 (Germany)", scope: "Scope 1", item: "天然氣 (Natural Gas)", unit: "m3", factor: 2.0300, 
+                source: "UBA / DEFRA 2023", url: "https://www.umweltbundesamt.de/" 
+            },
+            { 
+                country: "德國 (Germany)", scope: "Scope 2", item: "外購電力 (Electricity)", unit: "kWh", factor: 0.3800, 
+                source: "德國 UBA 2023 估計值", url: "https://www.umweltbundesamt.de/" 
+            }
+        ];
+
+        // --- 2. Initialization ---
+        let currentInputMode = 'monthly'; // 'monthly' or 'yearly'
+        let inventory = []; // Changed to let for reassignment
+        let chartCountryInstance = null;
+        let chartYearInstance = null;
+
+        // Populate Month Inputs
+        const monthInputsDiv = document.getElementById('monthlyInputGroup');
+        for (let i = 1; i <= 12; i++) {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = `
+                <label class="block text-[10px] text-gray-400 mb-1 uppercase tracking-wide">${i}月</label>
+                <input type="number" min="0" step="0.01" id="m${i}" oninput="calculateTotal()" 
+                    class="input-month w-full border border-gray-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" placeholder="-">
+            `;
+            monthInputsDiv.appendChild(wrapper);
+        }
+
+        // Populate Country Dropdown
+        const countrySelect = document.getElementById('countrySelect');
+        [...new Set(database.map(d => d.country))].forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c; opt.innerText = c;
+            countrySelect.appendChild(opt);
+        });
+
+        // --- Local Storage Functions ---
+        function saveToLocalStorage() {
+            try {
+                localStorage.setItem('ghg_inventory_v2', JSON.stringify(inventory));
+                // Optional: Show a subtle indicator
+            } catch (e) {
+                console.error("Storage failed:", e);
+            }
+        }
+
+        function loadFromLocalStorage() {
+            const savedData = localStorage.getItem('ghg_inventory_v2');
+            if (savedData) {
+                try {
+                    const parsedData = JSON.parse(savedData);
+                    if (Array.isArray(parsedData) && parsedData.length > 0) {
+                        inventory = parsedData;
+                        renderTable();
+                        updateCharts();
+                        document.getElementById('emptyRow')?.remove();
+                    }
+                } catch (e) {
+                    console.error("Error loading data:", e);
+                }
+            }
+        }
+
+        function clearStorage() {
+            if(confirm("確定要清除所有暫存資料嗎？此動作無法復原。")) {
+                localStorage.removeItem('ghg_inventory_v2');
+                inventory = [];
+                renderTable();
+                updateCharts();
+                // Reset inputs
+                document.getElementById('yearInput').value = 2025;
+                resetCalc();
+                alert("資料已清除");
+            }
+        }
+
+        // Load data when page loads
+        window.onload = function() {
+            loadFromLocalStorage();
+        };
+
+        // --- 3. UI Logic ---
+
+        function toggleInputMode(mode) {
+            currentInputMode = mode;
+            const monthlyGroup = document.getElementById('monthlyInputGroup');
+            const yearlyGroup = document.getElementById('yearlyInputGroup');
+            const btnMonthly = document.getElementById('btnMonthly');
+            const btnYearly = document.getElementById('btnYearly');
+
+            if (mode === 'monthly') {
+                monthlyGroup.classList.remove('hidden');
+                yearlyGroup.classList.add('hidden');
+                btnMonthly.classList.add('bg-white', 'shadow-sm', 'text-gray-800');
+                btnMonthly.classList.remove('text-gray-500');
+                btnYearly.classList.remove('bg-white', 'shadow-sm', 'text-gray-800');
+                btnYearly.classList.add('text-gray-500');
+            } else {
+                monthlyGroup.classList.add('hidden');
+                yearlyGroup.classList.remove('hidden');
+                btnYearly.classList.add('bg-white', 'shadow-sm', 'text-gray-800');
+                btnYearly.classList.remove('text-gray-500');
+                btnMonthly.classList.remove('bg-white', 'shadow-sm', 'text-gray-800');
+                btnMonthly.classList.add('text-gray-500');
+            }
+            calculateTotal();
+        }
+
+        function updateScopeOptions() {
+            const country = countrySelect.value;
+            const scopeSelect = document.getElementById('scopeSelect');
+            const fuelSelect = document.getElementById('fuelSelect');
+            
+            const scopes = [...new Set(database.filter(d => d.country === country).map(d => d.scope))].sort();
+            scopeSelect.innerHTML = '<option value="" disabled selected>-- 選擇 --</option>';
+            scopes.forEach(s => scopeSelect.add(new Option(s, s)));
+            
+            scopeSelect.disabled = false;
+            fuelSelect.innerHTML = '<option value="" disabled selected>-- 先選擇範疇 --</option>';
+            fuelSelect.disabled = true;
+            resetCalc();
+        }
+
+        function updateEnergyOptions() {
+            const country = countrySelect.value;
+            const scope = document.getElementById('scopeSelect').value;
+            const fuelSelect = document.getElementById('fuelSelect');
+            
+            const items = database.filter(d => d.country === country && d.scope === scope);
+            fuelSelect.innerHTML = '<option value="" disabled selected>-- 選擇 --</option>';
+            items.forEach(d => fuelSelect.add(new Option(d.item, d.item)));
+            
+            fuelSelect.disabled = false;
+            resetCalc();
+        }
+
+        function updateFactorInfo() {
+            const country = countrySelect.value;
+            const scope = document.getElementById('scopeSelect').value;
+            const item = document.getElementById('fuelSelect').value;
+            
+            const data = database.find(d => d.country === country && d.scope === scope && d.item === item);
+            
+            if (data) {
+                document.getElementById('factorCard').classList.remove('hidden');
+                document.getElementById('factorValue').innerText = data.factor.toFixed(4);
+                document.getElementById('factorUnit').innerText = `kgCO2e / ${data.unit}`;
+                document.getElementById('totalUnit').innerText = data.unit;
+                document.getElementById('yearlyUnitLabel').innerText = data.unit;
+                
+                // Link Logic
+                const sourceEl = document.getElementById('factorSourceWrapper');
+                if (data.url) {
+                    sourceEl.innerHTML = `<a href="${data.url}" target="_blank" class="text-blue-600 underline decoration-blue-300 underline-offset-2 hover:text-blue-800" title="點擊前往來源網站">${data.source} <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i></a>`;
+                } else {
+                    sourceEl.innerText = data.source;
+                }
+                
+                calculateTotal();
+            }
+        }
+
+        function calculateTotal() {
+            let sum = 0;
+            if (currentInputMode === 'monthly') {
+                for (let i = 1; i <= 12; i++) {
+                    sum += Number(document.getElementById(`m${i}`).value) || 0;
+                }
+            } else {
+                sum = Number(document.getElementById('yearlyTotalInput').value) || 0;
+            }
+            
+            document.getElementById('totalUsage').innerText = sum.toLocaleString('en-US', {maximumFractionDigits: 2});
+            
+            const factor = parseFloat(document.getElementById('factorValue').innerText);
+            if (!isNaN(factor)) {
+                const emission = (sum * factor) / 1000; 
+                document.getElementById('totalEmission').innerText = emission.toLocaleString('en-US', {minimumFractionDigits: 3, maximumFractionDigits: 3});
+            }
+        }
+
+        function resetCalc() {
+            document.getElementById('factorCard').classList.add('hidden');
+            document.getElementById('totalUsage').innerText = "0";
+            document.getElementById('totalEmission').innerText = "0.000";
+            document.getElementById('totalUnit').innerText = "-";
+            document.getElementById('yearlyUnitLabel').innerText = "-";
+        }
+
+        function addToTable() {
+            const year = document.getElementById('yearInput').value;
+            const country = countrySelect.value;
+            const scope = document.getElementById('scopeSelect').value;
+            const item = document.getElementById('fuelSelect').value;
+            const totalUsage = parseFloat(document.getElementById('totalUsage').innerText.replace(/,/g, ''));
+            const factor = parseFloat(document.getElementById('factorValue').innerText);
+            const unit = document.getElementById('totalUnit').innerText;
+            const emission = parseFloat(document.getElementById('totalEmission').innerText.replace(/,/g, ''));
+            const dataObj = database.find(d => d.country === country && d.scope === scope && d.item === item);
+
+            if (!country || !scope || !item) {
+                alert("請完整選擇國家、範疇與能源項目");
+                return;
+            }
+            if (totalUsage <= 0) {
+                alert("年度總使用量必須大於 0");
+                return;
+            }
+
+            document.getElementById('emptyRow')?.remove();
+
+            // Store Data
+            const monthlyData = [];
+            if (currentInputMode === 'monthly') {
+                for(let i=1; i<=12; i++) monthlyData.push(document.getElementById(`m${i}`).value || 0);
+            } else {
+                // If yearly, distribute roughly or just leave empty/null? Let's leave empty but mark as yearly input
+                for(let i=1; i<=12; i++) monthlyData.push(0); 
+            }
+
+            inventory.push({
+                id: Date.now(),
+                year, country, scope, item, totalUsage, unit, factor, emission, 
+                source: dataObj.source, url: dataObj.url, 
+                inputMode: currentInputMode, monthlyData
+            });
+
+            // Save to LocalStorage
+            saveToLocalStorage();
+
+            renderTable();
+            updateCharts();
+            
+            // Clear inputs based on mode
+            if(currentInputMode === 'monthly'){
+                for(let i=1; i<=12; i++) document.getElementById(`m${i}`).value = '';
+            } else {
+                document.getElementById('yearlyTotalInput').value = '';
+            }
+            calculateTotal();
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('inventoryTableBody');
+            tbody.innerHTML = '';
+            let grandTotal = 0;
+
+            inventory.forEach((row, index) => {
+                grandTotal += row.emission;
+                const tr = document.createElement('tr');
+                tr.className = "bg-white border-b hover:bg-blue-50 transition-colors";
+                
+                // Source Cell with Link Icon
+                let sourceCell = `<span class="text-xs text-gray-500 truncate max-w-[100px] block" title="${row.source}">${row.source}</span>`;
+                if(row.url) {
+                    sourceCell = `
+                        <div class="flex items-center justify-center gap-2 has-tooltip cursor-help relative">
+                            <a href="${row.url}" target="_blank" class="text-blue-500 hover:text-blue-700 bg-blue-50 p-1.5 rounded-full transition-colors">
+                                <i class="fa-solid fa-link"></i>
+                            </a>
+                            <span class="tooltip">${row.source} (點擊前往)</span>
+                        </div>
+                    `;
+                }
+
+                tr.innerHTML = `
+                    <td class="px-4 py-3 font-mono text-xs text-gray-500">${row.year}</td>
+                    <td class="px-4 py-3 font-medium text-gray-900">${row.country}</td>
+                    <td class="px-4 py-3 text-xs"><span class="px-2 py-1 rounded ${row.scope==='Scope 1'?'bg-orange-100 text-orange-700':'bg-purple-100 text-purple-700'}">${row.scope}</span></td>
+                    <td class="px-4 py-3">${row.item}</td>
+                    <td class="px-4 py-3 text-right font-mono">${row.totalUsage.toLocaleString()}</td>
+                    <td class="px-4 py-3 text-center"><span class="text-xs text-gray-400 border border-gray-200 px-1 rounded">${row.unit}</span></td>
+                    <td class="px-4 py-3 text-right font-mono text-xs text-gray-500">${row.factor}</td>
+                    <td class="px-4 py-3 text-center">${sourceCell}</td>
+                    <td class="px-4 py-3 text-right font-bold text-green-700">${row.emission.toFixed(3)}</td>
+                    <td class="px-4 py-3 text-center">
+                        <button onclick="deleteRow(${index})" class="text-gray-400 hover:text-red-500 transition">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            if (inventory.length === 0) {
+                tbody.innerHTML = `<tr id="emptyRow"><td colspan="10" class="px-6 py-20 text-center text-gray-400 italic">... 暫無資料 ...</td></tr>`;
+            }
+
+            document.getElementById('rowCount').innerText = `${inventory.length} 筆資料`;
+            document.getElementById('grandTotal').innerHTML = `${grandTotal.toFixed(3)} <span class="text-sm font-normal text-gray-500">tCO2e</span>`;
+        }
+
+        function deleteRow(index) {
+            inventory.splice(index, 1);
+            saveToLocalStorage(); // Save after delete
+            renderTable();
+            updateCharts();
+        }
+
+        function switchTab(tab) {
+            document.getElementById('view-list').classList.add('hidden');
+            document.getElementById('view-analysis').classList.add('hidden');
+            
+            if (tab === 'list') {
+                document.getElementById('view-list').classList.remove('hidden');
+                document.getElementById('view-list').classList.add('flex');
+            } else {
+                document.getElementById('view-analysis').classList.remove('hidden');
+                updateCharts(); // Refresh charts to ensure size is correct
+            }
+        }
+
+        // --- 4. Chart.js Logic ---
+        function updateCharts() {
+            if (inventory.length === 0) return;
+
+            // 1. Prepare Data: Aggregate by Country
+            const countryData = {};
+            inventory.forEach(row => {
+                countryData[row.country] = (countryData[row.country] || 0) + row.emission;
+            });
+
+            // 2. Prepare Data: Aggregate by Year
+            const yearData = {};
+            inventory.forEach(row => {
+                yearData[row.year] = (yearData[row.year] || 0) + row.emission;
+            });
+
+            // 3. Render Chart 1 (Country)
+            const ctxCountry = document.getElementById('chartCountry').getContext('2d');
+            if (chartCountryInstance) chartCountryInstance.destroy();
+            
+            chartCountryInstance = new Chart(ctxCountry, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(countryData),
+                    datasets: [{
+                        label: '碳排放量 (tCO2e)',
+                        data: Object.values(countryData),
+                        backgroundColor: '#3b82f6',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } }
+                }
+            });
+
+            // 4. Render Chart 2 (Year)
+            const ctxYear = document.getElementById('chartYear').getContext('2d');
+            if (chartYearInstance) chartYearInstance.destroy();
+
+            chartYearInstance = new Chart(ctxYear, {
+                type: 'line',
+                data: {
+                    labels: Object.keys(yearData).sort(),
+                    datasets: [{
+                        label: '年度總排放趨勢',
+                        data: Object.keys(yearData).sort().map(y => yearData[y]),
+                        borderColor: '#8b5cf6',
+                        backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+
+        function exportToCSV() {
+            if (inventory.length === 0) { alert("無資料可匯出"); return; }
+            let csv = "\uFEFF年度,國家,範疇,能源項目,單位,1月,2月,3月,4月,5月,6月,7月,8月,9月,10月,11月,12月,總用量,排放係數,來源,總排放量(tCO2e)\n";
+            inventory.forEach(r => {
+                const mData = r.inputMode === 'yearly' ? Array(12).fill('') : r.monthlyData;
+                csv += `${r.year},${r.country},${r.scope},${r.item},${r.unit},${mData.join(',')},${r.totalUsage},${r.factor},"${r.source}",${r.emission.toFixed(4)}\n`;
+            });
+            const link = document.createElement("a");
+            link.href = encodeURI("data:text/csv;charset=utf-8," + csv);
+            link.download = `GHG_Report_${new Date().toISOString().slice(0,10)}.csv`;
+            link.click();
+        }
+    </script>
+</body>
+</html>
